@@ -228,37 +228,6 @@ function limparMovimentosPossiveis() {
 	document.querySelectorAll('.destacada').forEach((celula) => celula.classList.remove('destacada'));
 }
 
-function moverPeca(celulaDestino) {
-	if (!pecaSelecionada || !celulaDestino.classList.contains('destacada')) return;
-
-	// Verifica se há uma peça na célula de destino
-	if (celulaDestino.children.length > 0) {
-		const pecaCapturada = celulaDestino.querySelector('i');
-
-		// Verifica se a peça capturada é um rei
-		if (pecaCapturada.classList.contains('fa-chess-king')) {
-			const vencedor = turnoBrancas ? "Brancas" : "Pretas";
-			alert(`O jogo acabou! O vencedor é: ${vencedor}`);
-			reiniciarJogo();
-			return;
-		}
-
-		// Remove a peça capturada
-		celulaDestino.removeChild(pecaCapturada);
-	}
-
-	// Move a peça para a célula de destino
-	const peca = pecaSelecionada.querySelector('i');
-	celulaDestino.appendChild(peca);
-
-	// Alterna o turno
-	turnoBrancas = !turnoBrancas;
-
-	// Limpa os destaques e reseta a seleção
-	limparMovimentosPossiveis();
-	pecaSelecionada = null;
-}
-
 // Função para reiniciar o jogo
 function reiniciarJogo() {
 	location.reload(); // Recarrega a página para reiniciar o jogo
@@ -307,11 +276,71 @@ setInterval(atualizarTempo, 1000);
 
 // Função para atualizar o tempo
 function atualizarTempo() {
-    totalSegundos++;
-    segundosLabel.innerHTML = formatarTempo(totalSegundos % 60);
-    minutosLabel.innerHTML = formatarTempo(Math.floor(totalSegundos / 60));
+	totalSegundos++;
+	segundosLabel.innerHTML = formatarTempo(totalSegundos % 60);
+	minutosLabel.innerHTML = formatarTempo(Math.floor(totalSegundos / 60));
 }
 
 function formatarTempo(valor) {
-    return valor.toString().padStart(2, "0");
+	return valor.toString().padStart(2, "0");
 }
+
+//Socket.io
+
+const socket = io();
+
+// Registrar jogador
+const nomeJogador = prompt('Digite seu nome:');
+socket.emit('registrarJogador', nomeJogador);
+
+let jogadorId;
+
+// Recebe confirmação de registro
+socket.on('registrado', (dados) => {
+	jogadorId = dados.id;
+	console.log('Registrado com sucesso:', dados);
+});
+
+// Enviar jogada para o servidor
+function moverPeca(celulaDestino) {
+	if (!pecaSelecionada || !celulaDestino.classList.contains('destacada')) return;
+
+	const origem = pecaSelecionada.id;
+	const destino = celulaDestino.id;
+
+	// Verifica se há uma peça na célula de destino
+	if (celulaDestino.children.length > 0) {
+		const pecaCapturada = celulaDestino.querySelector('i');
+
+		if (pecaCapturada.classList.contains('fa-chess-king')) {
+			const vencedor = turnoBrancas ? "Brancas" : "Pretas";
+			alert(`O jogo acabou! O vencedor é: ${vencedor}`);
+			reiniciarJogo();
+			return;
+		}
+
+		celulaDestino.removeChild(pecaCapturada);
+	}
+
+	const peca = pecaSelecionada.querySelector('i');
+	celulaDestino.appendChild(peca);
+
+	socket.emit('jogada', {
+		jogador_id: jogadorId,
+		origem,
+		destino,
+		turno: turnoBrancas ? 'Brancas' : 'Pretas',
+	});
+
+	turnoBrancas = !turnoBrancas;
+	limparMovimentosPossiveis();
+	pecaSelecionada = null;
+}
+
+// Receber jogada de outros jogadores
+socket.on('jogada', (jogada) => {
+	const { origem, destino } = jogada;
+	const peca = document.getElementById(origem).querySelector('i');
+	document.getElementById(destino).appendChild(peca);
+	turnoBrancas = !turnoBrancas;
+});
