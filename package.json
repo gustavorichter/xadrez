@@ -1,18 +1,26 @@
 {
   "name": "xadrez",
   "version": "1.0.0",
-  "description": "",
-  "main": "code.js",
+  "description": "Jogo de Xadrez com Vue.js 3 e Composition API",
+  "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
-  "keywords": [],
+  "keywords": ["chess", "vue", "game", "xadrez"],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "express": "^4.21.2",
     "socket.io": "^4.8.1",
-    "sqlite3": "^5.1.7"
+    "vue": "^3.4.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0",
+    "vite": "^5.0.0"
   }
 }
