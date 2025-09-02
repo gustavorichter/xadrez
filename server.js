@@ -2,73 +2,64 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // Configuração do app
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+// Middleware para parsing JSON
+app.use(express.json());
+
 // Middleware estático para servir o cliente
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Armazenamento em memória (substitui o SQLite)
-const players = new Map();
-const moves = [];
+// Configuração do proxy para a API Go
+const API_BASE_URL = 'http://localhost:8081';
 
-// Gerenciar conexões com Socket.IO
-io.on('connection', (socket) => {
-	console.log('Novo jogador conectado:', socket.id);
-
-	// Recebe nome do jogador e salva na memória
-	socket.on('registrarJogador', (nome) => {
-		const playerId = socket.id;
-		const player = {
-			id: playerId,
-			nome: nome,
-			connectedAt: new Date()
-		};
-		
-		players.set(playerId, player);
-		socket.emit('registrado', { id: playerId, nome });
-		console.log('Jogador registrado:', nome);
-	});
-
-	// Recebe jogada e propaga para outros jogadores
-	socket.on('jogada', (jogada) => {
-		const { origem, destino, turno } = jogada;
-		const move = {
-			id: moves.length + 1,
-			playerId: socket.id,
-			origem: origem,
-			destino: destino,
-			turno: turno,
-			timestamp: new Date()
-		};
-		
-		moves.push(move);
-		io.emit('jogada', move);
-		console.log('Jogada registrada:', move);
-	});
-
-	socket.on('disconnect', () => {
-		console.log('Jogador desconectado:', socket.id);
-		players.delete(socket.id);
-	});
-});
+// Proxy para todas as rotas da API
+app.use('/api', createProxyMiddleware({
+  target: API_BASE_URL,
+  changeOrigin: true,
+  onError: (err, req, res) => {
+    console.error('Erro no proxy da API:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao conectar com a API de xadrez. Verifique se o servidor Go está rodando na porta 8080.',
+      error: err.message
+    });
+  },
+  onProxyReq: (proxyReq, req, res) => {
+    console.log(`[PROXY] ${req.method} ${req.url} -> ${API_BASE_URL}${req.url}`);
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    console.log(`[PROXY] Resposta: ${proxyRes.statusCode} para ${req.url}`);
+  }
+}));
 
 // Rota para verificar status do servidor
 app.get('/status', (req, res) => {
 	res.json({
 		status: 'online',
-		players: players.size,
-		totalMoves: moves.length,
-		uptime: process.uptime()
+		uptime: process.uptime(),
+		api_proxy: 'http://localhost:8080',
+		message: 'Servidor Vue.js funcionando como proxy para API Go'
 	});
+});
+
+// Rota de fallback para SPA
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // Inicializa o servidor
 const PORT = 3000;
 server.listen(PORT, () => {
-	console.log(`Servidor rodando em http://localhost:${PORT}`);
-	console.log('Modo: Armazenamento em memória (sem SQLite)');
+	console.log(`🚀 Servidor Vue.js rodando em http://localhost:${PORT}`);
+	console.log(`🔗 Proxy configurado para API Go em ${API_BASE_URL}`);
+	console.log('📋 Para usar o jogo:');
+	console.log('   1. Certifique-se de que a API Go está rodando na porta 8080');
+	console.log('   2. Acesse http://localhost:3000 no navegador');
+	console.log('   3. Configure sua partida e comece a jogar!');
 });

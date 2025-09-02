@@ -1,6 +1,10 @@
 import { ref, reactive } from 'vue'
+import { useChessAPI } from './useChessAPI.js'
 
-export function useChessGame(socket) {
+export function useChessGame() {
+  // API integration
+  const { createGame, makeMove, getGame, getBoard, loading, error } = useChessAPI()
+  
   // Game state
   const board = ref([])
   const selectedCell = ref(null)
@@ -9,42 +13,93 @@ export function useChessGame(socket) {
   const gameHistory = ref([])
   const gameOver = ref(false)
   const winner = ref(null)
+  const currentGame = ref(null)
+  const playerColor = ref('white')
+  const computerColor = ref('black')
 
-  // Initialize the chess board
-  const initializeBoard = () => {
+  // Initialize a new game using the API
+  const initializeBoard = async (playerColorChoice = 'white', difficulty = 'medium') => {
+    try {
+      playerColor.value = playerColorChoice
+      computerColor.value = playerColorChoice === 'white' ? 'black' : 'white'
+      
+      const gameData = await createGame(playerColorChoice, difficulty)
+      currentGame.value = gameData
+      
+      // Parse FEN string to create board
+      parseFenToBoard(gameData.fen)
+      
+      gameOver.value = false
+      winner.value = null
+      gameHistory.value = []
+      turnoBrancas.value = gameData.current_player === 'white'
+      
+      return gameData
+    } catch (err) {
+      console.error('Erro ao criar nova partida:', err)
+      throw err
+    }
+  }
+
+  // Parse FEN string to board representation
+  const parseFenToBoard = (fen) => {
     const newBoard = []
+    const [piecePlacement] = fen.split(' ')
     
-    // Create all cells - corrigindo a ordem das linhas
+    // Create all cells first
     for (let row = 1; row <= 8; row++) {
       for (let col = 0; col < 8; col++) {
         const colLetter = String.fromCharCode(97 + col)
         const cellId = colLetter + row
         
-        const cell = {
+        newBoard.push({
           id: cellId,
           piece: null
-        }
-        
-        // Place pieces based on chess rules - CORRIGIDO
-        if (row === 2) {
-          cell.piece = { type: 'peao', color: 'branca' }
-        } else if (row === 1) {
-          const pieceTypes = ['torre', 'cavalo', 'bispo', 'rainha', 'rei', 'bispo', 'cavalo', 'torre']
-          cell.piece = { type: pieceTypes[col], color: 'branca' }
-        } else if (row === 7) {
-          cell.piece = { type: 'peao', color: 'preta' }
-        } else if (row === 8) {
-          const pieceTypes = ['torre', 'cavalo', 'bispo', 'rainha', 'rei', 'bispo', 'cavalo', 'torre']
-          cell.piece = { type: pieceTypes[col], color: 'preta' }
-        }
-        
-        newBoard.push(cell)
+        })
       }
     }
     
+    // Parse FEN and place pieces
+    const rows = piecePlacement.split('/')
+    rows.forEach((row, rowIndex) => {
+      let colIndex = 0
+      for (let char of row) {
+        if (isNaN(char)) {
+          // It's a piece
+          const piece = getPieceFromChar(char)
+          const cellId = String.fromCharCode(97 + colIndex) + (8 - rowIndex)
+          const cell = newBoard.find(c => c.id === cellId)
+          if (cell) {
+            cell.piece = piece
+          }
+          colIndex++
+        } else {
+          // It's a number (empty squares)
+          colIndex += parseInt(char)
+        }
+      }
+    })
+    
     board.value = newBoard
-    gameOver.value = false
-    winner.value = null
+  }
+
+  // Convert FEN piece character to piece object
+  const getPieceFromChar = (char) => {
+    const pieceMap = {
+      'K': { type: 'rei', color: 'branca' },
+      'Q': { type: 'rainha', color: 'branca' },
+      'R': { type: 'torre', color: 'branca' },
+      'B': { type: 'bispo', color: 'branca' },
+      'N': { type: 'cavalo', color: 'branca' },
+      'P': { type: 'peao', color: 'branca' },
+      'k': { type: 'rei', color: 'preta' },
+      'q': { type: 'rainha', color: 'preta' },
+      'r': { type: 'torre', color: 'preta' },
+      'b': { type: 'bispo', color: 'preta' },
+      'n': { type: 'cavalo', color: 'preta' },
+      'p': { type: 'peao', color: 'preta' }
+    }
+    return pieceMap[char] || null
   }
 
   // Check if king is captured
@@ -59,27 +114,49 @@ export function useChessGame(socket) {
   }
 
   // Handle cell click
-  const handleCellClick = (cellId) => {
+  const handleCellClick = async (cellId) => {
     // Se o jogo acabou, não permitir mais jogadas
-    if (gameOver.value) return
+    if (gameOver.value || (currentGame.value && currentGame.value.status !== 'active')) {
+      console.log('Jogo acabou ou não está ativo, não permitir jogadas')
+      return
+    }
+    
+    // Se não há partida ativa, não permitir jogadas
+    if (!currentGame.value) {
+      console.log('Nenhuma partida ativa')
+      return
+    }
     
     const cell = board.value.find(c => c.id === cellId)
     
     if (!cell) return
     
+    // Verificar se é o turno do jogador
+    const isPlayerTurn = currentGame.value.current_player === playerColor.value
+    console.log('Verificação de turno:', {
+      current_player: currentGame.value.current_player,
+      player_color: playerColor.value,
+      is_player_turn: isPlayerTurn
+    })
+    
+    if (!isPlayerTurn) {
+      console.log('Não é o turno do jogador')
+      return
+    }
+    
     // If no piece is selected and clicked cell has a piece of current player's color
     if (!selectedCell.value && cell.piece) {
-      const isCurrentPlayerPiece = (turnoBrancas.value && cell.piece.color === 'branca') ||
-                                  (!turnoBrancas.value && cell.piece.color === 'preta')
+      const isCurrentPlayerPiece = (playerColor.value === 'white' && cell.piece.color === 'branca') ||
+                                  (playerColor.value === 'black' && cell.piece.color === 'preta')
       
       if (isCurrentPlayerPiece) {
         selectedCell.value = cellId
         showPossibleMoves(cellId)
       }
     }
-    // If a piece is selected and clicked cell is a possible move
-    else if (selectedCell.value && possibleMoves.value.includes(cellId)) {
-      movePiece(selectedCell.value, cellId)
+    // If a piece is selected, try to move to clicked cell (let API validate)
+    else if (selectedCell.value) {
+      await movePiece(selectedCell.value, cellId)
     }
     // Deselect current piece
     else if (selectedCell.value === cellId) {
@@ -87,8 +164,8 @@ export function useChessGame(socket) {
     }
     // Select new piece
     else if (cell.piece) {
-      const isCurrentPlayerPiece = (turnoBrancas.value && cell.piece.color === 'branca') ||
-                                  (!turnoBrancas.value && cell.piece.color === 'preta')
+      const isCurrentPlayerPiece = (playerColor.value === 'white' && cell.piece.color === 'branca') ||
+                                  (playerColor.value === 'black' && cell.piece.color === 'preta')
       
       if (isCurrentPlayerPiece) {
         selectedCell.value = cellId
@@ -101,7 +178,8 @@ export function useChessGame(socket) {
   const showPossibleMoves = (cellId) => {
     const cell = board.value.find(c => c.id === cellId)
     if (!cell || !cell.piece) return
-    
+
+    // Usa a validação local novamente
     const moves = calculatePossibleMoves(cellId, cell.piece)
     possibleMoves.value = moves
   }
@@ -289,46 +367,109 @@ export function useChessGame(socket) {
     })
   }
 
-  // Move piece from origin to destination
-  const movePiece = (origin, destination) => {
-    const originCell = board.value.find(c => c.id === origin)
-    const destCell = board.value.find(c => c.id === destination)
+  // Move piece from origin to destination using API
+  const movePiece = async (origin, destination) => {
+    if (!currentGame.value) return
     
-    if (!originCell || !destCell) return
+    console.log('Tentando fazer movimento:', {
+      gameId: currentGame.value.id,
+      from: origin,
+      to: destination,
+      currentPlayer: currentGame.value.current_player,
+      gameStatus: currentGame.value.status
+    })
     
-    // Record the move
-    const move = {
-      origem: origin,
-      destino: destination,
-      peca: originCell.piece,
-      captura: destCell.piece,
-      turno: turnoBrancas.value ? 'brancas' : 'pretas',
-      timestamp: new Date()
-    }
-    
-    // Check if king is captured before moving
-    const kingCaptured = checkKingCapture(destCell.piece)
-    
-    // Move piece
-    destCell.piece = originCell.piece
-    originCell.piece = null
-    
-    // Add to game history
-    gameHistory.value.push(move)
-    
-    // Emit move to server
-    if (socket) {
-      socket.emit('jogada', {
-        origem: origin,
-        destino: destination,
-        turno: turnoBrancas.value ? 'brancas' : 'pretas'
-      })
-    }
-    
-    // If king was captured, don't switch turn
-    if (!kingCaptured) {
-      // Switch turn
-      turnoBrancas.value = !turnoBrancas.value
+    try {
+      const moveResult = await makeMove(currentGame.value.id, origin, destination)
+      
+      if (moveResult.valid) {
+        // Update board with new FEN
+        parseFenToBoard(moveResult.new_fen)
+        
+        // Update game state
+        currentGame.value.status = moveResult.game_status
+        
+        // Record the player's move
+        const playerMove = {
+          origem: origin,
+          destino: destination,
+          peca: board.value.find(c => c.id === origin)?.piece,
+          captura: board.value.find(c => c.id === destination)?.piece,
+          turno: playerColor.value,
+          timestamp: new Date()
+        }
+        
+        gameHistory.value.push(playerMove)
+        
+        // Check if computer made a move
+        if (moveResult.computer_move) {
+          console.log('Computador fez movimento:', moveResult.computer_move)
+          
+          // Record the computer's move
+          const computerMove = {
+            origem: moveResult.computer_move.from,
+            destino: moveResult.computer_move.to,
+            peca: moveResult.computer_move.piece,
+            turno: computerColor.value,
+            timestamp: new Date()
+          }
+          gameHistory.value.push(computerMove)
+          
+          // Update current player to be the player again (after computer's move)
+          currentGame.value.current_player = playerColor.value
+        } else {
+          // If no computer move, it's still the computer's turn
+          currentGame.value.current_player = computerColor.value
+        }
+        
+        // Check game status
+        if (moveResult.game_status === 'finished') {
+          gameOver.value = true
+          // Determina o vencedor com base no campo winner da resposta
+          if (moveResult.winner === 'white') {
+            winner.value = 'brancas'
+          } else if (moveResult.winner === 'black') {
+            winner.value = 'pretas'
+          } else {
+            winner.value = 'empate'
+          }
+        } else if (moveResult.game_status !== 'active') {
+          gameOver.value = true
+          // Fallback para compatibilidade antiga
+          if (moveResult.game_status === 'white_wins') {
+            winner.value = 'brancas'
+          } else if (moveResult.game_status === 'black_wins') {
+            winner.value = 'pretas'
+          } else {
+            winner.value = 'empate'
+          }
+        }
+        
+        // Update turn indicator
+        turnoBrancas.value = currentGame.value.current_player === 'white'
+        
+        console.log('Estado atualizado:', {
+          current_player: currentGame.value.current_player,
+          player_color: playerColor.value,
+          computer_color: computerColor.value,
+          is_player_turn: currentGame.value.current_player === playerColor.value
+        })
+      } else {
+        console.error('Movimento inválido:', moveResult.message)
+        // Show user-friendly error message
+        alert(`Movimento inválido: ${moveResult.message}`)
+      }
+    } catch (err) {
+      console.error('Erro ao fazer movimento:', err)
+      
+      // Show user-friendly error message
+      if (err.message.includes('Movimento inválido')) {
+        alert('Movimento inválido! Tente outro movimento.')
+      } else if (err.message.includes('400')) {
+        alert('Movimento não permitido. Verifique se é seu turno e se o movimento é válido.')
+      } else {
+        alert(`Erro: ${err.message}`)
+      }
     }
     
     // Clear selection
@@ -342,14 +483,13 @@ export function useChessGame(socket) {
   }
 
   // Reset game
-  const resetGame = () => {
-    initializeBoard()
-    turnoBrancas.value = true
-    gameHistory.value = []
+  const resetGame = async (playerColorChoice = 'white', difficulty = 'medium') => {
+    await initializeBoard(playerColorChoice, difficulty)
     clearSelection()
   }
 
   return {
+    // Game state
     board,
     selectedCell,
     possibleMoves,
@@ -357,9 +497,22 @@ export function useChessGame(socket) {
     gameHistory,
     gameOver,
     winner,
+    currentGame,
+    playerColor,
+    computerColor,
+    loading,
+    error,
+    
+    // Game actions
     handleCellClick,
     initializeBoard,
     clearSelection,
-    resetGame
+    resetGame,
+    
+    // API functions
+    createGame,
+    makeMove,
+    getGame,
+    getBoard
   }
 }

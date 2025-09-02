@@ -8,7 +8,13 @@
     "start": "node server.js",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup": "npm install && npm run build",
+    "test-api": "node test-api.js",
+    "test-connection": "node test-connection.js",
+    "test-game": "node test-game-state.js",
+    "setup-win": "setup.bat",
+    "setup-ps": "powershell -ExecutionPolicy Bypass -File setup.ps1"
   },
   "keywords": ["chess", "vue", "game", "xadrez"],
   "author": "",
@@ -17,7 +23,8 @@
     "express": "^4.21.2",
     "socket.io": "^4.8.1",
     "vue": "^3.4.0",
-    "socket.io-client": "^4.8.1"
+    "socket.io-client": "^4.8.1",
+    "http-proxy-middleware": "^2.0.6"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
