@@ -389,12 +389,21 @@ export function useChessGame() {
         // Update game state
         currentGame.value.status = moveResult.game_status
         
+        // Detectar se o movimento do jogador capturou o rei
+        let capturedPiece = board.value.find(c => c.id === destination)?.piece
+        let forcarFim = false
+        let vencedorForcado = null
+        if (capturedPiece && capturedPiece.type === 'rei') {
+          forcarFim = true
+          vencedorForcado = capturedPiece.color === 'branca' ? 'pretas' : 'brancas'
+        }
+
         // Record the player's move
         const playerMove = {
           origem: origin,
           destino: destination,
           peca: board.value.find(c => c.id === origin)?.piece,
-          captura: board.value.find(c => c.id === destination)?.piece,
+          captura: capturedPiece,
           turno: playerColor.value,
           timestamp: new Date()
         }
@@ -443,6 +452,12 @@ export function useChessGame() {
           } else {
             winner.value = 'empate'
           }
+        } else if (forcarFim) {
+          // Força o fim do jogo se o rei foi capturado
+          gameOver.value = true
+          winner.value = vencedorForcado
+          currentGame.value.status = 'finished'
+          alert('O rei foi capturado! Fim de jogo.')
         }
         
         // Update turn indicator
